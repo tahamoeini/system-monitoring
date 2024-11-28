@@ -3,19 +3,18 @@ mod types;
 use crate::types::{Metric, MetricStatus, Metrics};
 use chrono::Utc;
 use env_logger;
+use extended_isolation_forest::{Forest, ForestOptions};
 use log::info;
+use ndarray::Array2;
 use reqwest;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use std::{env, thread};
-use sysinfo::{Components, Disks, Networks, System};
+use sysinfo::{Disks, System};
 
-// Constants
-const MAX_HISTORY: usize = 100; // Maximum number of data points to keep in history
-const MONITORING_INTERVAL: Duration = Duration::from_secs(5); // Monitoring interval in seconds
-const ANOMALY_THRESHOLD: f64 = 2.5; // Z-score threshold for anomaly detection
+const MAX_HISTORY: usize = 100;
+const MONITORING_INTERVAL: Duration = Duration::from_secs(1);
 
-// Struct to hold historical metrics data
 #[derive(Debug, Clone)]
 struct MetricHistory {
     data: VecDeque<[f64; 4]>, // Each data point contains [CPU, RAM, Disk, Network Latency]
@@ -35,55 +34,6 @@ impl MetricHistory {
         }
         self.data.push_back([cpu, ram, disk, latency]);
     }
-
-    /// Computes the Z-scores of the latest data point based on historical data
-    fn compute_z_scores(&self) -> Option<[f64; 4]> {
-        let n = self.data.len();
-
-        // Need at least two data points to compute standard deviation
-        if n < 2 {
-            return None;
-        }
-
-        let mut means = [0.0; 4];
-        let mut variances = [0.0; 4];
-
-        // Calculate means
-        for data_point in &self.data {
-            for i in 0..4 {
-                means[i] += data_point[i];
-            }
-        }
-        for mean in &mut means {
-            *mean /= n as f64;
-        }
-
-        // Calculate variances
-        for data_point in &self.data {
-            for i in 0..4 {
-                variances[i] += (data_point[i] - means[i]).powi(2);
-            }
-        }
-        for variance in &mut variances {
-            *variance /= (n - 1) as f64; // Sample variance
-        }
-
-        // Calculate standard deviations
-        let stddevs: Vec<f64> = variances.iter().map(|&var| var.sqrt()).collect();
-
-        // Compute Z-scores for the latest data point
-        let latest_data = self.data.back().unwrap();
-        let mut z_scores = [0.0; 4];
-        for i in 0..4 {
-            if stddevs[i] != 0.0 {
-                z_scores[i] = (latest_data[i] - means[i]) / stddevs[i];
-            } else {
-                z_scores[i] = 0.0; // Avoid division by zero
-            }
-        }
-
-        Some(z_scores)
-    }
 }
 
 fn main() {
@@ -100,11 +50,14 @@ fn main() {
         // Add metrics to history
         history.add(cpu_usage, ram_usage, disk_usage, network_latency);
 
-        // Analyze the latest metrics for anomalies
-        let metrics_status = analyze_status(&history);
-
-        // Log the metrics and their status
-        log_status(&metrics_status);
+        if history.data.len() >= 20 {
+            // Analyze the latest metrics for anomalies
+            let metrics_status = analyze_status(&history);
+            // Log the metrics and their status
+            log_status(&metrics_status);
+        } else {
+            println!("Collecting data... ({}/{})", history.data.len(), 20);
+        }
 
         // Sleep until the next monitoring interval
         thread::sleep(MONITORING_INTERVAL);
@@ -162,65 +115,78 @@ fn check_network_latency(url: &str) -> f64 {
 
 /// Analyzes the latest metrics for anomalies using Z-scores
 fn analyze_status(history: &MetricHistory) -> Metrics {
-    if let Some(z_scores) = history.compute_z_scores() {
-        // Use the Z-score threshold to determine anomalies
-        let latest_data = history.data.back().unwrap();
+    let data_len = history.data.len();
 
-        // Map each metric to its status
-        let statuses: Vec<MetricStatus> = z_scores
-            .iter()
-            .map(|&z_score| {
-                if z_score.abs() > ANOMALY_THRESHOLD {
-                    MetricStatus::Critical
-                } else {
-                    MetricStatus::Normal
-                }
-            })
-            .collect();
+    // Convert history data into a slice of fixed-size arrays
+    let training_data: Vec<[f64; 4]> = history.data.iter().cloned().collect();
 
-        Metrics {
-            cpu: Metric {
-                value: latest_data[0],
-                status: statuses[0].clone(),
-            },
-            ram: Metric {
-                value: latest_data[1],
-                status: statuses[1].clone(),
-            },
-            disk: Metric {
-                value: latest_data[2],
-                status: statuses[2].clone(),
-            },
-            network: Metric {
-                value: latest_data[3],
-                status: statuses[3].clone(),
-            },
+    let options = ForestOptions {
+        n_trees: 100,
+        sample_size: data_len, // Use all available data for training
+        max_tree_depth: None,
+        extension_level: 1,
+    };
+
+    // Attempt to create the isolation forest
+    let forest = match Forest::from_slice(&training_data, &options) {
+        Ok(forest) => forest,
+        Err(e) => {
+            println!("Failed to train Isolation Forest: {}", e);
+            return Metrics {
+                cpu: Metric {
+                    value: 0.0,
+                    status: MetricStatus::Normal,
+                },
+                ram: Metric {
+                    value: 0.0,
+                    status: MetricStatus::Normal,
+                },
+                disk: Metric {
+                    value: 0.0,
+                    status: MetricStatus::Normal,
+                },
+                network: Metric {
+                    value: 0.0,
+                    status: MetricStatus::Normal,
+                },
+            };
         }
+    };
+
+    // Get the latest data point
+    let latest_data = history.data.back().unwrap();
+
+    // Compute the anomaly score for the latest data
+    let latest_score = forest.score(latest_data);
+
+    // Determine the metric status based on the anomaly score
+    let status = if latest_score > 0.5 {
+        MetricStatus::Critical
     } else {
-        // Not enough data to compute Z-scores, default to Normal
-        let latest_data = history.data.back().unwrap();
-        Metrics {
-            cpu: Metric {
-                value: latest_data[0],
-                status: MetricStatus::Normal,
-            },
-            ram: Metric {
-                value: latest_data[1],
-                status: MetricStatus::Normal,
-            },
-            disk: Metric {
-                value: latest_data[2],
-                status: MetricStatus::Normal,
-            },
-            network: Metric {
-                value: latest_data[3],
-                status: MetricStatus::Normal,
-            },
-        }
+        MetricStatus::Normal
+    };
+
+    // Create and return the Metrics struct
+    Metrics {
+        cpu: Metric {
+            value: latest_data[0],
+            status: status.clone(),
+        },
+        ram: Metric {
+            value: latest_data[1],
+            status: status.clone(),
+        },
+        disk: Metric {
+            value: latest_data[2],
+            status: status.clone(),
+        },
+        network: Metric {
+            value: latest_data[3],
+            status: status.clone(),
+        },
     }
 }
 
-/// Logs the current metrics and their statuses
 fn log_status(metrics: &Metrics) {
     let now = Utc::now();
     let json_output = serde_json::to_string(metrics).unwrap();
