@@ -3,8 +3,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize, Clone)]
 pub enum MetricStatus {
     Normal,
-    SlightlyAbnormal,
-    Abnormal,
+    Warning,
     Critical,
 }
 
@@ -14,6 +13,7 @@ pub struct Metrics {
     pub ram: Metric,
     pub disk: Metric,
     pub network: Metric,
+    pub overall_status: MetricStatus,
 }
 
 #[derive(Debug, Serialize)]

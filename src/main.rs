@@ -1,11 +1,10 @@
-mod types;
+mod metrics;
 
-use crate::types::{Metric, MetricStatus, Metrics};
+use crate::metrics::{Metric, MetricStatus, Metrics};
 use chrono::Utc;
 use env_logger;
 use extended_isolation_forest::{Forest, ForestOptions};
 use log::info;
-use ndarray::Array2;
 use reqwest;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -149,6 +148,7 @@ fn analyze_status(history: &MetricHistory) -> Metrics {
                     value: 0.0,
                     status: MetricStatus::Normal,
                 },
+                overall_status: MetricStatus::Normal,
             };
         }
     };
@@ -156,40 +156,85 @@ fn analyze_status(history: &MetricHistory) -> Metrics {
     // Get the latest data point
     let latest_data = history.data.back().unwrap();
 
-    // Compute the anomaly score for the latest data
-    let latest_score = forest.score(latest_data);
+    // Compute anomaly scores for each metric
+    let cpu_score = forest.score(&[latest_data[0], 0.0, 0.0, 0.0]);
+    let ram_score = forest.score(&[0.0, latest_data[1], 0.0, 0.0]);
+    let disk_score = forest.score(&[0.0, 0.0, latest_data[2], 0.0]);
+    let network_score = forest.score(&[0.0, 0.0, 0.0, latest_data[3]]);
 
-    // Determine the metric status based on the anomaly score
-    let status = if latest_score > 0.5 {
+    // Assign coefficients to each metric
+    let coefficients = [0.4, 0.35, 0.15, 0.1];
+
+    // Individual metric thresholds
+    let cpu_threshold = 0.7;
+    let ram_threshold = 0.6;
+    let disk_threshold = 0.65;
+    let network_threshold = 0.75;
+
+    // Determine individual metric statuses
+    let cpu_status = determine_status(cpu_score, cpu_threshold);
+    let ram_status = determine_status(ram_score, ram_threshold);
+    let disk_status = determine_status(disk_score, disk_threshold);
+    let network_status = determine_status(network_score, network_threshold);
+
+    // Compute overall weighted anomaly score
+    let overall_score = coefficients[0] * cpu_score
+        + coefficients[1] * ram_score
+        + coefficients[2] * disk_score
+        + coefficients[3] * network_score;
+
+    // Determine overall status
+    let overall_status = if overall_score > 0.8 {
         MetricStatus::Critical
+    } else if overall_score > 0.6 {
+        MetricStatus::Warning
     } else {
         MetricStatus::Normal
     };
 
-    // Create and return the Metrics struct
+    // Log raw scores for debugging
+    info!(
+        "Scores - CPU: {:.2}, RAM: {:.2}, Disk: {:.2}, Network: {:.2}, Overall: {:.2}",
+        cpu_score, ram_score, disk_score, network_score, overall_score
+    );
+
+    // Return the Metrics struct with individual and overall statuses
     Metrics {
         cpu: Metric {
             value: latest_data[0],
-            status: status.clone(),
+            status: cpu_status,
         },
         ram: Metric {
             value: latest_data[1],
-            status: status.clone(),
+            status: ram_status,
         },
         disk: Metric {
             value: latest_data[2],
-            status: status.clone(),
+            status: disk_status,
         },
         network: Metric {
             value: latest_data[3],
-            status: status.clone(),
+            status: network_status,
         },
+        overall_status,
+    }
+}
+
+/// Determines the status of a metric based on its anomaly score and threshold
+fn determine_status(score: f64, threshold: f64) -> MetricStatus {
+    if score > threshold + 0.2 {
+        // Critical threshold
+        MetricStatus::Critical
+    } else if score > threshold {
+        // Warning threshold
+        MetricStatus::Warning
+    } else {
+        MetricStatus::Normal
     }
 }
 
 fn log_status(metrics: &Metrics) {
     let now = Utc::now();
     let json_output = serde_json::to_string(metrics).unwrap();
-    println!("[{}] Metrics: {}", now, json_output);
     info!("[{}] Metrics: {}", now, json_output);
 }
