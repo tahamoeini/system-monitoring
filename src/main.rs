@@ -128,12 +128,10 @@ fn get_status(value: f64, slight: f64, abnormal: f64, critical: f64) -> types::M
     }
 }
 
-
 fn log_status(metrics: &Metrics) {
     let now = Utc::now();
     let json_output = serde_json::to_string(metrics).unwrap();
     println!("[{}] Metrics: {}", now, json_output);
     info!("[{}] Metrics: {}", now, json_output);
 }
-
 

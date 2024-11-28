@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-pub(crate) enum MetricStatus {
+pub enum MetricStatus {
     Normal,
     SlightlyAbnormal,
     Abnormal,
@@ -9,7 +9,7 @@ pub(crate) enum MetricStatus {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct Metrics {
+pub struct Metrics {
     pub cpu: Metric,
     pub ram: Metric,
     pub disk: Metric,
@@ -17,7 +17,7 @@ pub(crate) struct Metrics {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct Metric {
+pub struct Metric {
     pub value: f64,
     pub status: MetricStatus,
 }
