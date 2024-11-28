@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use std::{env, thread};
-use sysinfo::{CpuExt, DiskExt, System, SystemExt};
+use sysinfo::{Components, Disks, Networks, System};
 
 const MAX_HISTORY: usize = 100;
 
@@ -75,13 +75,12 @@ fn main() {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let cpu_usage = sys.global_cpu_info().cpu_usage() as f64;
+        let cpu_usage = sys.global_cpu_usage() as f64;
         let ram_usage = sys.used_memory() as f64 / sys.total_memory() as f64 * 100.0;
-        let disk_usage = sys
-            .disks()
+        let disk_usage = Disks::new_with_refreshed_list()
             .iter()
             .map(|d| d.total_space() as f64 - d.available_space() as f64)
-            .sum();
+            .sum::<f64>();
         let network_latency = check_network_latency("https://www.google.com");
 
         history.add(cpu_usage, ram_usage, disk_usage, network_latency);
