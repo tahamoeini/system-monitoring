@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0  # Ensure full history for versioning
 
       - name: Set up Rust
-        uses: actions/setup-rust@v1
+        uses: moonrepo/setup-rust@v1
         with:
           profile: minimal
           override: true
