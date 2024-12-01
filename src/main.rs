@@ -1,69 +1,20 @@
 mod metrics;
+mod socket;
 
-use crate::metrics::{Metric, MetricStatus, Metrics};
+use crate::metrics::{Metric, MetricHistory, MetricStatus, Metrics};
+use crate::socket::{WSMessage, WebSocketClient};
 use chrono::Utc;
 use env_logger;
 use extended_isolation_forest::{Forest, ForestOptions};
-use log::info;
+use log::{error, info};
 use reqwest;
-use std::collections::VecDeque;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 use sysinfo::{Disks, System};
+use tokio::runtime::Runtime;
 
-const MAX_HISTORY: usize = 100;
 const MONITORING_INTERVAL: Duration = Duration::from_secs(1);
-const SMOOTHING_ALPHA: f64 = 0.3; // Smoothing factor for EWMA
-const SPIKE_THRESHOLD: f64 = 20.0; // Threshold for detecting rapid spikes
-
-#[derive(Debug, Clone)]
-struct MetricHistory {
-    data: VecDeque<[f64; 4]>, // Each data point contains [CPU, RAM, Disk, Network Latency]
-    smoothed_scores: [f64; 4], // Smoothed scores for [CPU, RAM, Disk, Network]
-    previous_data: Option<[f64; 4]>, // Previous metrics for spike detection
-}
-
-impl MetricHistory {
-    fn new() -> Self {
-        Self {
-            data: VecDeque::with_capacity(MAX_HISTORY),
-            smoothed_scores: [0.0; 4],
-            previous_data: None,
-        }
-    }
-
-    fn add(&mut self, cpu: f64, ram: f64, disk: f64, latency: f64) {
-        // Maintain the history size
-        if self.data.len() == MAX_HISTORY {
-            self.data.pop_front();
-        }
-        self.previous_data = self.data.back().cloned(); // Store previous data for spike detection
-        self.data.push_back([cpu, ram, disk, latency]);
-    }
-
-    /// Update smoothed scores using EWMA
-    fn update_smoothed_scores(&mut self, latest_scores: [f64; 4]) {
-        for i in 0..4 {
-            self.smoothed_scores[i] = SMOOTHING_ALPHA * latest_scores[i]
-                + (1.0 - SMOOTHING_ALPHA) * self.smoothed_scores[i];
-        }
-    }
-
-    /// Detect rapid spikes based on the difference between consecutive data points
-    fn detect_spike(&self, current_data: [f64; 4]) -> [bool; 4] {
-        if let Some(prev) = self.previous_data {
-            let mut spikes = [false; 4];
-            for i in 0..4 {
-                if (current_data[i] - prev[i]).abs() > SPIKE_THRESHOLD {
-                    spikes[i] = true;
-                }
-            }
-            spikes
-        } else {
-            [false; 4] // No spike detected if there is no previous data
-        }
-    }
-}
 
 fn main() {
     // Initialize the logger
@@ -71,6 +22,16 @@ fn main() {
     env_logger::init();
 
     let mut history = MetricHistory::new();
+    let runtime = Runtime::new().unwrap();
+    let client = runtime.block_on(async {
+        match WebSocketClient::new("ws://127.0.0.1:9000").await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                error!("Failed to connect to WebSocket server: {}", e);
+                std::process::exit(1);
+            }
+        }
+    });
 
     loop {
         // Collect system metrics
@@ -82,8 +43,31 @@ fn main() {
         if history.data.len() >= 20 {
             // Analyze the latest metrics for anomalies
             let metrics_status = analyze_status(&mut history);
+
             // Log the metrics and their status
             log_status(&metrics_status);
+
+            // Send message to server if critical
+            if metrics_status.overall_status == MetricStatus::Critical {
+                runtime.block_on(async {
+                    let message = WSMessage {
+                        sub: "CriticalAlert".to_string(),
+                        payload: Some(format!(
+                            "Critical status detected: CPU: {:.2}, RAM: {:.2}, Disk: {:.2}, Network: {:.2}",
+                            metrics_status.cpu.value,
+                            metrics_status.ram.value,
+                            metrics_status.disk.value,
+                            metrics_status.network.value
+                        )),
+                        reply_sub: None,
+                        error: None,
+                    };
+
+                    if let Err(e) = client.send_and_wait_for_reply(message).await {
+                        error!("Failed to send critical alert: {}", e);
+                    }
+                });
+            }
         } else {
             println!("Collecting data... ({}/{})", history.data.len(), 20);
         }
@@ -281,6 +265,7 @@ fn determine_status(score: f64, threshold: f64) -> MetricStatus {
     }
 }
 
+/// Log the status
 fn log_status(metrics: &Metrics) {
     let now = Utc::now();
     let json_output = serde_json::to_string(metrics).unwrap();
