@@ -1,4 +1,4 @@
-name: Rust
+name: Rust CI/CD
 
 on:
   push:
@@ -9,14 +9,45 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write  # Grants write access to repository contents
+
 jobs:
-  build:
-
+  release:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensure full history for versioning
+
+      - name: Set up Rust
+        uses: actions/setup-rust@v1
+        with:
+          profile: minimal
+          override: true
+
+      - name: Install dependencies
+        run: cargo fetch
+
+      - name: Determine next version
+        id: version
+        uses: mgoltzsche/conventional-release@v0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          files: target/release/your_executable_name
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
