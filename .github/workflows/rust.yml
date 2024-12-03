@@ -42,13 +42,12 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           auto-release: false
           release-branch: main
-          ignore-commits-before: "2022-01-01" # Adjust this date to a valid history point
+          ignore-commits-before: "b928caa5222a859ec5a4e437d892712155ce6a43" # Replace with the actual hash
           update-major-tag: false
           github-release-enabled: true
           github-release-draft: false
           github-release-latest: true
           ref: refs/heads/main
-      
 
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
