@@ -1,8 +1,6 @@
 mod metrics;
-mod socket;
 
 use crate::metrics::{Metric, MetricHistory, MetricStatus, Metrics};
-use crate::socket::{WSMessage, WebSocketClient};
 use chrono::Utc;
 use env_logger;
 use extended_isolation_forest::{Forest, ForestOptions};
@@ -23,15 +21,7 @@ fn main() {
 
     let mut history = MetricHistory::new();
     let runtime = Runtime::new().unwrap();
-    let client = runtime.block_on(async {
-        match WebSocketClient::new("ws://127.0.0.1:9000").await {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                error!("Failed to connect to WebSocket server: {}", e);
-                std::process::exit(1);
-            }
-        }
-    });
+    let client = runtime.block_on(async {});
 
     loop {
         // Collect system metrics
@@ -50,22 +40,22 @@ fn main() {
             // Send message to server if critical
             if metrics_status.overall_status == MetricStatus::Critical {
                 runtime.block_on(async {
-                    let message = WSMessage {
-                        sub: "CriticalAlert".to_string(),
-                        payload: Some(format!(
-                            "Critical status detected: CPU: {:.2}, RAM: {:.2}, Disk: {:.2}, Network: {:.2}",
-                            metrics_status.cpu.value,
-                            metrics_status.ram.value,
-                            metrics_status.disk.value,
-                            metrics_status.network.value
-                        )),
-                        reply_sub: None,
-                        error: None,
-                    };
+                    // let message = WSMessage {
+                    //     sub: "CriticalAlert".to_string(),
+                    //     payload: Some(format!(
+                    //         "Critical status detected: CPU: {:.2}, RAM: {:.2}, Disk: {:.2}, Network: {:.2}",
+                    //         metrics_status.cpu.value,
+                    //         metrics_status.ram.value,
+                    //         metrics_status.disk.value,
+                    //         metrics_status.network.value
+                    //     )),
+                    //     reply_sub: None,
+                    //     error: None,
+                    // };
 
-                    if let Err(e) = client.send_and_wait_for_reply(message).await {
-                        error!("Failed to send critical alert: {}", e);
-                    }
+                    // if let Err(e) = client.send_and_wait_for_reply(message).await {
+                    //     error!("Failed to send critical alert: {}", e);
+                    // }
                 });
             }
         } else {

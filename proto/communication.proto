@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package communication;
+
+service Events {
+    rpc Alert (Event) returns (Acknowledge) {}
+}
+
+message Event {
+    string subject = 1;
+    bool reply = 2;
+    string payload = 3;
+}
+
+message Acknowledge {
+    string subject = 1;
+    int32 status = 2;
+    string payload = 3;
+}
