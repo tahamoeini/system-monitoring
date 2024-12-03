@@ -30,6 +30,11 @@ jobs:
       - name: Install dependencies
         run: cargo fetch
 
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Ensure full history for proper commit filtering
+
       - name: Determine next version
         id: version
         uses: mgoltzsche/conventional-release@v0
@@ -37,7 +42,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           auto-release: false
           release-branch: main
-          ignore-commits-before: "2023-01-01" # Adjust this date to ignore older commits
+          ignore-commits-before: "2022-01-01" # Adjust this date to a valid history point
+          update-major-tag: false
+          github-release-enabled: true
+          github-release-draft: false
+          github-release-latest: true
+          ref: refs/heads/main
+      
 
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
