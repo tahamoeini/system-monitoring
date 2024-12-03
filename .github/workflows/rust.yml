@@ -43,12 +43,18 @@ jobs:
           auto-release: true
           release-branch: main
           ignore-commits-before: "187470a1bc94c2e5671e0b6a4b1fd7c0b08be2e8"
-          force-publish: true
           update-major-tag: false
           github-release-enabled: true
           github-release-draft: false
           github-release-latest: true
           ref: refs/heads/main
+
+      - name: Check if tag already exists
+        run: |
+          if git rev-parse "refs/tags/v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.version.outputs.version }} already exists. Skipping release."
+            exit 0
+          fi
 
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
@@ -60,13 +66,6 @@ jobs:
           git add Cargo.toml
           git commit -m "chore: bump version to $VERSION"
           git push origin main
-
-      - name: Check if tag exists
-        run: |
-          if git rev-parse refs/tags/v${{ steps.version.outputs.version }} >/dev/null 2>&1; then
-            echo "Tag already exists. Exiting."
-            exit 0
-          fi
 
       - name: Create GitHub Release
         if: steps.version.outputs.publish == 'true'
