@@ -19,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Fetch full history
 
       - name: Set up Rust
         uses: moonrepo/setup-rust@v1
@@ -42,6 +42,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           auto-release: true
           release-branch: main
+          ignore-commits-before: "187470a1bc94c2e5671e0b6a4b1fd7c0b08be2e8"
 
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
