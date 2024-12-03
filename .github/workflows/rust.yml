@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0  # Ensure full history for versioning
-          persist-credentials: false
+          persist-credentials: false  # We'll handle credentials manually
 
       - name: Set up Rust
         uses: moonrepo/setup-rust@v1
@@ -31,19 +31,19 @@ jobs:
       - name: Install dependencies
         run: cargo fetch
 
-      - name: Check for uncommitted changes
-        run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "Uncommitted changes detected:"
-            git status
-            exit 1
-          fi
-
-      - name: Determine next version
+      - name: Determine next version and update Cargo.toml
         id: version
         uses: mgoltzsche/conventional-release@v0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            Cargo.toml|^version\s*=\s*"(.*)"
+          release: false  # We'll create the release separately
+
+      - name: Fetch updated code
+        run: |
+          git fetch origin
+          git reset --hard origin/${{ github.ref_name }}
 
       - name: Build
         run: cargo build --verbose
@@ -57,6 +57,6 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
-          files: target/release/your_executable_name
+          files: target/release/your_actual_executable_name
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
