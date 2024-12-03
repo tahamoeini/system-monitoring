@@ -42,7 +42,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           auto-release: false
           release-branch: main
-          ignore-commits-before: "b928caa5222a859ec5a4e437d892712155ce6a43" # Replace with the actual hash
+          ignore-commits-before: "b928caa5222a859ec5a4e437d892712155ce6a43"
           update-major-tag: false
           github-release-enabled: true
           github-release-draft: false
