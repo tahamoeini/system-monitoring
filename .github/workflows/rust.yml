@@ -16,31 +16,43 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the code
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Fetch full history
+          fetch-depth: 0  # Fetch full history for versioning
 
+      # Set up Rust environment
       - name: Set up Rust
-        uses: moonrepo/setup-rust@v1
+        uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
+          toolchain: stable
+          override: true
 
+      # Install project dependencies
       - name: Install dependencies
         run: cargo fetch
 
+      # Install Protobuf compiler (`protoc`)
       - name: Install `protoc` (Protocol Buffer Compiler)
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
           protoc --version  # Verify installation
 
-      - name: Build
-        run: cargo build --release --verbose
+      # Lint the code (optional but recommended)
+      - name: Lint code with Clippy
+        run: cargo clippy -- -D warnings  # Fail on any warning
 
+      # Run tests
       - name: Run tests
         run: cargo test --verbose
 
+      # Build the project
+      - name: Build project
+        run: cargo build --release --verbose
+
+      # Determine next version
       - name: Determine next version
         id: version
         uses: mgoltzsche/conventional-release@v0
@@ -55,6 +67,7 @@ jobs:
           github-release-latest: true
           ref: refs/heads/main
 
+      # Check if the Git tag already exists
       - name: Check if tag already exists
         run: |
           if git rev-parse "refs/tags/v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
@@ -62,6 +75,7 @@ jobs:
             exit 0
           fi
 
+      # Update the Cargo.toml version
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
         run: |
@@ -73,12 +87,21 @@ jobs:
           git commit -m "chore: bump version to $VERSION"
           git push origin main
 
+      # Tag the release
+      - name: Create Git Tag
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          git tag $TAG
+          git push origin $TAG
+
+      # Create GitHub Release
       - name: Create GitHub Release
         if: steps.version.outputs.publish == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
-          files: target/release/your_actual_executable_name
+          files: target/release/system-monitoring
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
