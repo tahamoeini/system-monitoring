@@ -1,22 +1,30 @@
-use communication::{communication_client::CommunicationClient, Acknowledge, Event};
-use tonic::{transport::Server, Request, Response, Status};
+use crate::types::ICUStatus;
+use communication::events_client::EventsClient;
+use communication::{Acknowledge, Event};
+use log::{error, info};
+use tonic::Request;
 
 pub mod communication {
     tonic::include_proto!("communication");
 }
 
-#[tokio::main]
-async fn main(subject: String, payload: String, reply: Option<bool>) -> Result<Acknowledge, Box<dyn std::error::Error>> {
+pub(crate) async fn send_alert(
+    subject: String,
+    payload: String,
+    reply: bool,
+) -> Result<Acknowledge, Box<dyn std::error::Error>> {
     let channel = tonic::transport::Channel::from_static("http://[::1]:50051")
         .connect()
         .await?;
-    let mut client = communication::communication_client::CommunicationClient::new(channel);
+    let mut client = EventsClient::new(channel); // Updated to use EventsClient
     let request = Request::new(Event {
         subject,
         payload,
-        reply: reply.unwrap_or(false),
+        reply,
     });
+
     let response: Acknowledge = client.alert(request).await?.into_inner();
+
     if response.status == ICUStatus::Failure as i32 {
         error!("Failed to send alert: {}", response.payload);
     } else {

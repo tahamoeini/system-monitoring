@@ -4,14 +4,7 @@ description = "System monitoring tool"
 authors = ["Taha"]
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "sm-server"
-path = "src/grpc/server.rs"
-
-[[bin]]
-name = "sm-client"
-path = "src/grpc/client.rs"
+build = "build.rs"
 
 [dependencies]
 log = "0.4"

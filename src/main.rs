@@ -1,84 +1,82 @@
 mod metrics;
+mod server;
+mod client;
+mod types;
 
 use crate::metrics::{Metric, MetricHistory, MetricStatus, Metrics};
 use chrono::Utc;
+use client::send_alert;
 use env_logger;
 use extended_isolation_forest::{Forest, ForestOptions};
 use log::{error, info};
 use reqwest;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{env, thread};
+use server::start_server;
+use std::{thread, time::{Duration, Instant}};
 use sysinfo::{Disks, System};
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
-const MONITORING_INTERVAL: Duration = Duration::from_secs(1);
+const MONITORING_INTERVAL: Duration = Duration::from_secs(5);
 
 fn main() {
-    // Initialize the logger
-    env::set_var("RUST_LOG", "info");
     env_logger::init();
 
+    let (tx, mut rx) = mpsc::channel(1);
+
+    thread::spawn(move || {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(start_server(tx)).unwrap();
+    });
+
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        rx.recv().await.unwrap();
+    });
+
+    info!("Server is running. Starting monitoring...");
+
     let mut history = MetricHistory::new();
-    let runtime = Runtime::new().unwrap();
-    let client = runtime.block_on(async {});
 
     loop {
-        // Collect system metrics
         let (cpu_usage, ram_usage, disk_usage, network_latency) = collect_metrics();
 
-        // Add metrics to history
         history.add(cpu_usage, ram_usage, disk_usage, network_latency);
 
         if history.data.len() >= 20 {
-            // Analyze the latest metrics for anomalies
             let metrics_status = analyze_status(&mut history);
-
-            // Log the metrics and their status
             log_status(&metrics_status);
 
-            // Send message to server if critical
             if metrics_status.overall_status == MetricStatus::Critical {
-                runtime.block_on(async {
-                    // let message = WSMessage {
-                    //     sub: "CriticalAlert".to_string(),
-                    //     payload: Some(format!(
-                    //         "Critical status detected: CPU: {:.2}, RAM: {:.2}, Disk: {:.2}, Network: {:.2}",
-                    //         metrics_status.cpu.value,
-                    //         metrics_status.ram.value,
-                    //         metrics_status.disk.value,
-                    //         metrics_status.network.value
-                    //     )),
-                    //     reply_sub: None,
-                    //     error: None,
-                    // };
+                let payload = format!(
+                    "Critical: CPU {:.2}%, RAM {:.2}%, Disk {:.2}%, Network {:.2}ms",
+                    metrics_status.cpu.value,
+                    metrics_status.ram.value,
+                    metrics_status.disk.value,
+                    metrics_status.network.value
+                );
 
-                    // if let Err(e) = client.send_and_wait_for_reply(message).await {
-                    //     error!("Failed to send critical alert: {}", e);
-                    // }
-                });
+                let result = rt.block_on(send_alert("CriticalAlert".to_string(), payload, true));
+                match result {
+                    Ok(ack) => info!("Alert sent: {:?}", ack),
+                    Err(e) => error!("Alert failed: {}", e),
+                }
             }
         } else {
             println!("Collecting data... ({}/{})", history.data.len(), 20);
         }
 
-        // Sleep until the next monitoring interval
         thread::sleep(MONITORING_INTERVAL);
     }
 }
 
-/// Collects the current system metrics
 fn collect_metrics() -> (f64, f64, f64, f64) {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    // CPU usage in percentage
     let cpu_usage = sys.global_cpu_usage() as f64;
 
-    // RAM usage in percentage
     let ram_usage = sys.used_memory() as f64 / sys.total_memory() as f64 * 100.0;
 
-    // Disk usage in percentage
     let disks = Disks::new_with_refreshed_list();
     let disk_usage = disks
         .iter()
@@ -92,15 +90,13 @@ fn collect_metrics() -> (f64, f64, f64, f64) {
             }
         })
         .sum::<f64>()
-        / disks.len() as f64; // Average disk usage across disks
+        / disks.len() as f64;
 
-    // Network latency to a well-known website
     let network_latency = check_network_latency("https://www.google.com");
 
     (cpu_usage, ram_usage, disk_usage, network_latency)
 }
 
-/// Checks network latency by sending a request to the given URL
 fn check_network_latency(url: &str) -> f64 {
     let start = Instant::now();
     let client = reqwest::blocking::Client::builder()
@@ -109,26 +105,23 @@ fn check_network_latency(url: &str) -> f64 {
         .unwrap();
 
     match client.get(url).send() {
-        Ok(_) => start.elapsed().as_secs_f64() * 1000.0, // Convert to milliseconds
-        Err(_) => f64::MAX,                              // Use a large value to indicate failure
+        Ok(_) => start.elapsed().as_secs_f64() * 1000.0,
+        Err(_) => f64::MAX,
     }
 }
 
-/// Analyzes the latest metrics for anomalies using EWMA, spike detection, and thresholds
 fn analyze_status(history: &mut MetricHistory) -> Metrics {
     let data_len = history.data.len();
 
-    // Convert history data into a slice of fixed-size arrays
     let training_data: Vec<[f64; 4]> = history.data.iter().cloned().collect();
 
     let options = ForestOptions {
         n_trees: 100,
-        sample_size: data_len, // Use all available data for training
+        sample_size: data_len,
         max_tree_depth: None,
         extension_level: 1,
     };
 
-    // Attempt to create the isolation forest
     let forest = match Forest::from_slice(&training_data, &options) {
         Ok(forest) => forest,
         Err(e) => {
@@ -155,10 +148,8 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
         }
     };
 
-    // Get the latest data point
     let latest_data = *history.data.back().unwrap();
 
-    // Compute anomaly scores for each metric
     let latest_scores = [
         forest.score(&[latest_data[0], 0.0, 0.0, 0.0]),
         forest.score(&[0.0, latest_data[1], 0.0, 0.0]),
@@ -166,19 +157,14 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
         forest.score(&[0.0, 0.0, 0.0, latest_data[3]]),
     ];
 
-    // Update smoothed scores
     history.update_smoothed_scores(latest_scores);
 
-    // Detect spikes
     let spikes = history.detect_spike(latest_data);
 
-    // Assign coefficients to each metric
     let coefficients = [0.4, 0.35, 0.15, 0.1];
 
-    // Individual metric thresholds
     let thresholds = [0.7, 0.6, 0.65, 0.75];
 
-    // Determine individual metric statuses, incorporating spike detection
     let statuses: Vec<MetricStatus> = history
         .smoothed_scores
         .iter()
@@ -186,14 +172,13 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
         .enumerate()
         .map(|(i, (&score, &threshold))| {
             if spikes[i] {
-                MetricStatus::Warning // Escalate to Warning if a spike is detected
+                MetricStatus::Warning
             } else {
                 determine_status(score, threshold)
             }
         })
         .collect();
 
-    // Compute overall weighted anomaly score
     let overall_score: f64 = history
         .smoothed_scores
         .iter()
@@ -201,7 +186,6 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
         .map(|(&score, &coeff)| score * coeff)
         .sum();
 
-    // Determine overall status
     let overall_status = if overall_score > 0.8 {
         MetricStatus::Critical
     } else if overall_score > 0.6 {
@@ -210,7 +194,6 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
         MetricStatus::Normal
     };
 
-    // Log raw scores for debugging
     info!(
         "Scores - CPU: {:.2}, RAM: {:.2}, Disk: {:.2}, Network: {:.2}, Overall: {:.2}",
         history.smoothed_scores[0],
@@ -220,7 +203,6 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
         overall_score
     );
 
-    // Return the Metrics struct with individual and overall statuses
     Metrics {
         cpu: Metric {
             value: latest_data[0],
@@ -242,22 +224,25 @@ fn analyze_status(history: &mut MetricHistory) -> Metrics {
     }
 }
 
-/// Determines the status of a metric based on its smoothed anomaly score and threshold
 fn determine_status(score: f64, threshold: f64) -> MetricStatus {
     if score > threshold + 0.2 {
-        // Critical threshold
         MetricStatus::Critical
     } else if score > threshold {
-        // Warning threshold
         MetricStatus::Warning
     } else {
         MetricStatus::Normal
     }
 }
 
-/// Log the status
 fn log_status(metrics: &Metrics) {
     let now = Utc::now();
-    let json_output = serde_json::to_string(metrics).unwrap();
-    info!("[{}] Metrics: {}", now, json_output);
+    info!(
+        "[{}] Metrics - CPU: {:.2}%, RAM: {:.2}%, Disk: {:.2}%, Network: {:.2}ms, Status: {:?}",
+        now,
+        metrics.cpu.value,
+        metrics.ram.value,
+        metrics.disk.value,
+        metrics.network.value,
+        metrics.overall_status
+    );
 }

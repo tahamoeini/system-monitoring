@@ -1,7 +1,9 @@
+use tonic::Status;
+
 pub struct Event {
     pub subject: String,
     pub payload: String,
-    reply: bool,
+    pub reply: bool,
 }
 
 impl Event {
@@ -22,45 +24,24 @@ pub struct EventAck {
 
 impl EventAck {
     pub fn new(subject: String, payload: String, status: ICUStatus, error: Option<ICUError>) -> Self {
-        if (subject.split('-').collect()[0] == "ack") {
-            Self {
-                subject,
-                payload,
-                status,
-            }
+        if subject.starts_with("ack-") {
+            Self { subject, payload, status }
         } else {
             Self {
                 subject: format!("ack-{}", subject),
-                payload: if (error.is_some()) { error.unwrap().message } else { payload },
-                status: if (error.is_some()) { ICUStatus::Failure } else { ICUStatus::Success },
+                payload: error
+                    .as_ref()
+                    .map_or(payload, |e| e.message.clone()),
+                status: error.map_or(ICUStatus::Success, |_| ICUStatus::Failure),
             }
         }
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ICUStatus {
     Failure = 0,
-    Success,
-}
-
-pub enum Status {
-    Ok = 0,
-    Cancelled,
-    Unknown,
-    InvalidArgument,
-    DeadlineExceeded,
-    NotFound,
-    AlreadyExists,
-    PermissionDenied,
-    ResourceExhausted,
-    FailedPrecondition,
-    Aborted,
-    OutOfRange,
-    Unimplemented,
-    Internal,
-    Unavailable,
-    DataLoss,
-    Unauthenticated,
+    Success = 1,
 }
 
 pub struct ICUError {
