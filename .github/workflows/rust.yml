@@ -52,6 +52,22 @@ jobs:
       - name: Build project
         run: cargo build --release --verbose
 
+      # Determine next version
+      - name: Determine next version
+        id: version
+        uses: mgoltzsche/conventional-release@v0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          auto-release: true
+          release-branch: main
+          ignore-commits-before: "72845be2baf0b6d719c5f1936ea1595ce06b40ea"
+          update-major-tag: false
+          github-release-enabled: true
+          github-release-draft: false
+          github-release-latest: true
+          ref: refs/heads/main
+
+      # Debug existing tags
       - name: Debug existing tags
         run: git ls-remote --tags origin
 
