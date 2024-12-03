@@ -19,16 +19,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Fetch full history
 
       - name: Set up Rust
         uses: moonrepo/setup-rust@v1
         with:
           profile: minimal
-          override: true
 
       - name: Install dependencies
         run: cargo fetch
+
+      - name: Build
+        run: cargo build --release --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
 
       - name: Determine next version
         id: version
@@ -37,27 +42,24 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           auto-release: true
           release-branch: main
-          ignore-commits-before: "9a36ad248acaed772537d0ad372e5a609d63718a"
-          update-major-tag: false
-          github-release-enabled: true
-          github-release-draft: false
-          github-release-latest: true
-          ref: refs/heads/main
 
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
         run: |
           VERSION=${{ steps.version.outputs.version }}
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
           git add Cargo.toml
           git commit -m "chore: bump version to $VERSION"
           git push origin main
 
-      - name: Build
-        run: cargo build --release --verbose
-
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Check if tag exists
+        run: |
+          if git rev-parse refs/tags/v${{ steps.version.outputs.version }} >/dev/null 2>&1; then
+            echo "Tag already exists. Exiting."
+            exit 0
+          fi
 
       - name: Create GitHub Release
         if: steps.version.outputs.publish == 'true'
