@@ -43,6 +43,12 @@ jobs:
           auto-release: true
           release-branch: main
           ignore-commits-before: "187470a1bc94c2e5671e0b6a4b1fd7c0b08be2e8"
+          force-publish: true
+          update-major-tag: false
+          github-release-enabled: true
+          github-release-draft: false
+          github-release-latest: true
+          ref: refs/heads/main
 
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
