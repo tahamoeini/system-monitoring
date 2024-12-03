@@ -37,7 +37,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           auto-release: true
           release-branch: main
-          ignore-commits-before: "b928caa5222a859ec5a4e437d892712155ce6a43"
+          ignore-commits-before: "9a36ad248acaed772537d0ad372e5a609d63718a"
           update-major-tag: false
           github-release-enabled: true
           github-release-draft: false
