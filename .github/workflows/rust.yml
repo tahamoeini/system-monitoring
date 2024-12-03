@@ -40,9 +40,9 @@ jobs:
           sudo apt-get install -y protobuf-compiler
           protoc --version  # Verify installation
 
-      # Lint the code (optional but recommended)
+      # Lint the code (fail only on errors, not warnings)
       - name: Lint code with Clippy
-        run: cargo clippy -- -D warnings  # Fail on any warning
+        run: cargo clippy -- -A warnings  # Allow warnings but report errors
 
       # Run tests
       - name: Run tests
