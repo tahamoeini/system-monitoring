@@ -100,7 +100,6 @@ jobs:
           git tag -d "v${VERSION}" || true
           git push origin --delete "v${VERSION}" || true
 
-      # Update Cargo.toml version
       - name: Update Cargo.toml version
         if: steps.version.outputs.publish == 'true'
         run: |
