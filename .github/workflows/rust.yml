@@ -71,8 +71,9 @@ jobs:
       # Override version from Cargo.toml
       - name: Override version from Cargo.toml
         run: |
-          VERSION=$(grep 'version =' Cargo.toml | awk -F\" '{print $2}')
+          VERSION=$(grep '^version =' Cargo.toml | sed -E 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Using VERSION=$VERSION"
 
       # Debug version outputs
       - name: Debug version outputs
