@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: cargo fetch
 
+      - name: Install `protoc` (Protocol Buffer Compiler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version  # Verify installation
+
       - name: Build
         run: cargo build --release --verbose
 
