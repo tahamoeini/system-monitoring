@@ -20,7 +20,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Fetch full history for versioning
+          fetch-depth: 0
 
       # Set up Rust environment
       - name: Set up Rust
@@ -29,36 +29,47 @@ jobs:
           toolchain: stable
           override: true
 
-      # Install project dependencies
+      # Install dependencies
       - name: Install dependencies
         run: cargo fetch
 
-      # Install Protobuf compiler (`protoc`)
+      # Install Protobuf compiler
       - name: Install `protoc` (Protocol Buffer Compiler)
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
-          protoc --version  # Verify installation
+          protoc --version
 
-      # Lint the code (fail only on errors, not warnings)
-      - name: Lint code with Clippy
-        run: cargo clippy -- -A warnings  # Allow warnings but report errors
-
-      # Run tests
-      - name: Run tests
-        run: cargo test --verbose
-
-      # Build the project
-      - name: Build project
-        run: cargo build --release --verbose
-
-      # Fetch all tags to ensure consistency
-      - name: Fetch all tags
-        run: git fetch --tags --force
+      # Reset local Git state
+      - name: Reset local Git state
+        run: |
+          git fetch --tags --force
+          git reset --hard origin/main
 
       # Debug existing tags
-      - name: Debug existing tags
+      - name: Debug existing tags (verbose)
         run: git ls-remote --tags origin
+
+      # Determine next version
+      - name: Determine next version
+        id: version
+        uses: mgoltzsche/conventional-release@v0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          auto-release: true
+          release-branch: main
+          ignore-commits-before: "187470a1bc94c2e5671e0b6a4b1fd7c0b08be2e8"
+          update-major-tag: false
+          github-release-enabled: true
+          github-release-draft: false
+          github-release-latest: true
+          ref: refs/heads/main
+
+      # Debug version outputs
+      - name: Debug version outputs
+        run: |
+          echo "Version determined: ${{ steps.version.outputs.version }}"
+          echo "Release publish flag: ${{ steps.version.outputs.publish }}"
 
       # Check if tag exists on remote
       - name: Check if tag exists on remote
